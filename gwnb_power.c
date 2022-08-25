@@ -187,19 +187,19 @@ EcReadMem (
 }
 
 //Write Data to EC memory at location pointed by Index
-static int 
-EcWriteMem (
-   int  Index,
-   int  Data
-  )
-{
-  static int  Cmd;
-  Cmd = 0x81;
-  EcWriteCmd (Cmd);
-  EcWriteData (Index);
-  EcWriteData (Data);
-  return 0;
-}
+// static int 
+// EcWriteMem (
+//    int  Index,
+//    int  Data
+//   )
+// {
+//   static int  Cmd;
+//   Cmd = 0x81;
+//   EcWriteCmd (Cmd);
+//   EcWriteData (Index);
+//   EcWriteData (Data);
+//   return 0;
+// }
 
 static int gw_ec_read(int offset)
 {
@@ -211,19 +211,18 @@ static int gw_ec_read(int offset)
 	return tmp;
 }
 
-static int gw_ec_write(int offset,int value)
-{
-	printk(KERN_ERR "gw_ec_write\n");
+// static int gw_ec_write(int offset,int value)
+// {
+// 	printk(KERN_ERR "gw_ec_write\n");
 
-	EcWriteMem(offset, value);
-	return 0;
-}
+// 	EcWriteMem(offset, value);
+// 	return 0;
+// }
 
 static int goldfish_ac_get_property(struct power_supply *psy,
 				    enum power_supply_property psp,
 				    union power_supply_propval *val)
 {
-	struct gw_nb_battery_data *data = power_supply_get_drvdata(psy);
 	int ret = 0;
 
 	switch (psp) {
@@ -234,11 +233,9 @@ static int goldfish_ac_get_property(struct power_supply *psy,
 			val->intval = 0;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
-		// val->intval = gw_ec_read(BATTERY_VOLTAGE_MAX);
 		val->intval = 20;
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
-		// val->intval = gw_ec_read(BATTERY_CURRENT_MAX);
 		val->intval = 3;
 		break;
 	default:
@@ -252,7 +249,6 @@ static int goldfish_battery_get_property(struct power_supply *psy,
 					 enum power_supply_property psp,
 					 union power_supply_propval *val)
 {
-	struct gw_nb_battery_data *data = power_supply_get_drvdata(psy);
 	int ret = 0;
 	int temp;
 	int16_t temp16;
@@ -301,16 +297,16 @@ static int goldfish_battery_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		temp16 = gw_ec_read(BATTERY_CUR_NOW_L);
 		temp16 += gw_ec_read(BATTERY_CUR_NOW_H)<<8;
-		if(temp16<0)
-		temp16 = ~(--temp16);
+		if (temp16 < 0)
+			temp16 = ~(temp16-1);
 		val->intval = temp16*1000;
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_AVG:
 		temp16 = gw_ec_read(BATTERY_CUR_AVG_L);
 		temp16 += gw_ec_read(BATTERY_CUR_AVG_H)<<8;
-		if(temp16<0)
-		temp16 = ~(--temp16);
-		val->intval = temp16*1000;
+		if (temp16 < 0)
+			temp16 = ~(temp16-1);
+		val->intval = temp16 * 1000;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_NOW:
 		temp = gw_ec_read(BATTERY_CUR_CAP_L);
@@ -399,13 +395,12 @@ static int goldfish_battery_probe(struct platform_device *pdev)
 
 	lpc_base = ioremap(LPC_BASE_ADDR, 0x100);
 	
-	printk(KERN_ERR "GW NB ioremap lpc_base addr:0x%lx\n",lpc_base);
+	printk(KERN_ERR "GW NB ioremap lpc_base addr:0x%p\n",lpc_base);
 
 
 	data->irq = acpi_register_gsi(NULL, GPIO_0_INT, ACPI_LEVEL_SENSITIVE,
 					ACPI_ACTIVE_HIGH);
 	printk(KERN_ERR "GW NB acpi_register_gsi:%d\n",data->irq);
-	printk(KERN_ERR "GW NB data:0x%lx\n",data);
 
 	ret = request_irq(data->irq, goldfish_battery_interrupt, 0, "gw-nb-power", data);
 	if (ret)
@@ -427,7 +422,7 @@ static int goldfish_battery_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, data);
 
 	gpio_iobase = ioremap(0x28004000, 0x100);
-	printk(KERN_ERR "GW NB ioremap gpio_iobase addr:0x%lx\n",gpio_iobase);
+	printk(KERN_ERR "GW NB ioremap gpio_iobase addr:0x%p\n",gpio_iobase);
 
     //Charles set SCI gpio (GPIOA 07)
 	//This should be done by BIOS not driver.
@@ -451,7 +446,7 @@ static int goldfish_battery_probe(struct platform_device *pdev)
 	temp |= BIT(7);
 	writel(temp,gpio_iobase + 0x18);
 
-	writeb(0x86,lpc_base + I8042_COMMAND_REG);
+	EcWriteCmd (0x86);
 
 	return 0;
 }
