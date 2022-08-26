@@ -13,7 +13,6 @@
 #include <linux/platform_device.h>
 #include <linux/power_supply.h>
 #include <linux/types.h>
-#include <linux/pci.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/acpi.h>
@@ -351,9 +350,9 @@ static int goldfish_battery_probe(struct platform_device *pdev)
 	struct power_supply_config psy_cfg = {};
 	u32 temp;
 
-
 	printk(KERN_ERR "GW NB Battery probe\n");
-	data = devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL);
+
+	data = devm_kzalloc(&pdev->dev, sizeof(struct gw_nb_battery_data), GFP_KERNEL);
 	if (data == NULL)
 		return -ENOMEM;
 
@@ -387,8 +386,8 @@ static int goldfish_battery_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, data);
 
+	lpc_base = ioremap(LPC_BASE_ADDR, 0x100);
 	gpio_iobase = ioremap(0x28004000, 0x100);
-	printk(KERN_ERR "GW NB ioremap gpio_iobase addr:0x%p\n",gpio_iobase);
 
     //Charles set SCI gpio (GPIOA 07)
 	//This should be done by BIOS not driver.
@@ -425,7 +424,20 @@ static int goldfish_battery_remove(struct platform_device *pdev)
 	power_supply_unregister(data->ac);
 	return 0;
 }
+int gw_nb_device_suspend(struct platform_device *pdev, pm_message_t mesg)
+{
+	printk(KERN_ERR "gw_nb_device_suspend\n");
+	return 0;
+}
+EXPORT_SYMBOL_GPL(gw_nb_device_suspend);
 
+int gw_nb_device_resume(struct platform_device *pdev)
+{
+	printk(KERN_ERR "gw_nb_device_resume\n");
+	EcWriteCmd (0x86);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(gw_nb_device_resume);
 
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id goldfish_battery_acpi_match[] = {
@@ -437,13 +449,17 @@ MODULE_DEVICE_TABLE(acpi, goldfish_battery_acpi_match);
 #endif
 
 static struct platform_driver
-	goldfish_battery_device = { .probe = goldfish_battery_probe,
-				    .remove = goldfish_battery_remove,
-				    .driver = {
-					    .name = "gw-nb-battery",
-					    .acpi_match_table = ACPI_PTR(
-						    goldfish_battery_acpi_match),
-				    } };
+	goldfish_battery_device = {
+		.probe = goldfish_battery_probe,
+		.remove = goldfish_battery_remove,
+		.driver = {
+			.name = "gw-nb-battery",
+			.acpi_match_table = ACPI_PTR(
+				goldfish_battery_acpi_match),
+		},
+		.suspend = gw_nb_device_suspend,
+		.resume = gw_nb_device_resume,
+};
 module_platform_driver(goldfish_battery_device);
 
 MODULE_AUTHOR("zhangshuzhen@greatwall.com.cn");
