@@ -1,5 +1,5 @@
 # gwnb_power
-Keyboard and mouse driver for phytium platform notebooks
+Battery and EC driver for phytium platform notebooks
 
 ## How to build
 ```bash
