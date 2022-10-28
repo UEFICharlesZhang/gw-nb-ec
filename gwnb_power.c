@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Power supply driver for the goldfish emulator
+ * Power supply driver for Great Wall ft notebooks
  *
  * Copyright (C) 2008 Google, Inc.
  * Copyright (C) 2012 Intel, Inc.
  * Copyright (C) 2013 Intel, Inc.
+ * Copyright (c) 2019 Great Wall
  * Author: Mike Lockwood <lockwood@android.com>
  */
 
@@ -253,7 +254,7 @@ static int goldfish_battery_get_property(struct power_supply *psy,
 		case POWER_SUPPLY_PROP_TEMP:
 			temp = gw_ec_read(BATTERY_TEMP_L);
 			temp += gw_ec_read(BATTERY_TEMP_H) << 8;
-			val->intval = temp / 10;
+			val->intval = temp - 2722;
 			break;
 		case POWER_SUPPLY_PROP_CHARGE_COUNTER:
 			val->intval = 1;
@@ -498,4 +499,4 @@ module_platform_driver(goldfish_battery_device);
 
 MODULE_AUTHOR("zhangshuzhen@greatwall.com.cn");
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Battery driver for greatwall ft notebooks");
+MODULE_DESCRIPTION("Power supply driver for Great Wall ft notebooks");
