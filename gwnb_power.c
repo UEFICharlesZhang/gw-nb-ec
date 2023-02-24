@@ -19,6 +19,9 @@
 #include <linux/acpi.h>
 #include <linux/delay.h>
 
+#include <linux/input.h>
+
+
 struct gw_nb_battery_data
 {
 	void __iomem *reg_base;
@@ -27,6 +30,8 @@ struct gw_nb_battery_data
 
 	struct power_supply *battery;
 	struct power_supply *ac;
+	struct input_dev *input; //Lid
+
 };
 
 #define POWER_STATUS 0xB0
@@ -71,8 +76,22 @@ struct gw_nb_battery_data
 #define I8042_COMMAND_REG 0x66UL
 #define I8042_DATA_REG 0x62UL
 
+/* EC status register */
+#define ACPI_EC_FLAG_OBF	0x01	/* Output buffer full */
+#define ACPI_EC_FLAG_IBF	0x02	/* Input buffer full */
+#define ACPI_EC_FLAG_CMD	0x08	/* Input buffer contains a command */
+#define ACPI_EC_FLAG_BURST	0x10	/* burst mode */
+#define ACPI_EC_FLAG_SCI	0x20	/* EC-SCI occurred */
+
 void __iomem *lpc_base;
 void __iomem *gpio_iobase;
+
+// Wait till EC I/P buffer is free
+static int
+EcStatus(void)
+{
+	return readb(lpc_base + I8042_COMMAND_REG);
+}
 
 // Wait till EC I/P buffer is free
 static int
@@ -324,37 +343,70 @@ static enum power_supply_property goldfish_battery_props[] = {
 static enum power_supply_property goldfish_ac_props[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 };
+static void gwnb_lid_poll(struct input_dev *input)
+{
+	bool lidstatus;
 
+	lidstatus = gw_ec_read(0x46) & BIT(0);
+
+	if (lidstatus)
+	{
+			printk("lid close\n");
+			input_report_switch(input,
+								SW_LID, 1);
+			input_sync(input);
+	}
+	else
+	{
+			printk("lid open\n");
+
+			input_report_switch(input,
+								SW_LID, 0);
+			input_sync(input);
+	}
+}
+static void check_sci_event(struct gw_nb_battery_data *data)
+{
+	unsigned int i = 0;
+	unsigned int q_event[8];
+
+	while ((EcStatus() & ACPI_EC_FLAG_SCI) && (i < 8))
+	{
+			EcWriteCmd(0x84);
+			EcReadData(&q_event[i]);
+			printk("[%s] :%d, recieve %d SCI, Q num:0x%X\n", __func__, __LINE__, i, q_event[i]);
+			i++;
+	}
+	switch (q_event[0])
+	{
+	case 0xB3:
+			power_supply_changed(data->battery);
+			break;
+	case 0xB4:
+			power_supply_changed(data->battery);
+			power_supply_changed(data->ac);
+			break;
+	case 0xD0:
+			if (data->input)
+				gwnb_lid_poll(data->input);
+			break;
+	default:
+			break;
+	}
+}
 static irqreturn_t goldfish_battery_interrupt(int irq, void *dev_id)
 {
 	unsigned long irq_flags;
 	struct gw_nb_battery_data *data = dev_id;
-	unsigned int q_event;
 	printk("[%s] :%d, irq :%d\n", __func__, __LINE__, irq);
 
 	spin_lock_irqsave(&data->lock, irq_flags);
 	// //read and confirm if this is a interrupt from gpio 7.
 	if (readl(gpio_iobase + 0x28) & BIT(7))
 	{
-
-		EcWriteCmd(0x84);
-		EcReadData(&q_event);
-		printk("[%s] :%d, recieve an SCI, Q num:0x%X\n", __func__, __LINE__, q_event);
-
-		switch (q_event)
-		{
-		case 0xB3:
-			power_supply_changed(data->battery);
-			break;
-		case 0xB4:
-			power_supply_changed(data->battery);
-			power_supply_changed(data->ac);
-			break;
-		default:
-			break;
-		}
-		// clear sci.
-		writel(BIT(7), gpio_iobase + 0x38);
+			// clear sci.
+			writel(BIT(7), gpio_iobase + 0x38);
+			check_sci_event(data);
 	}
 
 	spin_unlock_irqrestore(&data->lock, irq_flags);
@@ -376,10 +428,29 @@ static const struct power_supply_desc ac_desc = {
 	.name = "gwnb-ac",
 	.type = POWER_SUPPLY_TYPE_MAINS,
 };
+static int match_dev_by_name(struct device *dev, const void *data)
+{
+	struct input_dev *input;
+
+	if (!strncasecmp(dev_name(dev), "input", 5))
+	{
+		// printk(KERN_ERR "chz dev name:%s\n", dev_name(dev));
+		input = to_input_dev(dev);
+		if (input->name)
+		{
+			// printk(KERN_ERR "chz match_dev_by_name:%s\n", input->name);
+			if (!strcmp(input->name, "gwnb-lid"))
+				return 1;
+		}
+	}
+	return 0;
+}
 
 static int goldfish_battery_probe(struct platform_device *pdev)
 {
 	int ret;
+	struct device *dev;
+
 	// struct resource *r;
 	struct gw_nb_battery_data *data;
 	struct power_supply_config psy_cfg = {};
@@ -390,6 +461,19 @@ static int goldfish_battery_probe(struct platform_device *pdev)
 	data = devm_kzalloc(&pdev->dev, sizeof(struct gw_nb_battery_data), GFP_KERNEL);
 	if (data == NULL)
 		return -ENOMEM;
+
+		printk(KERN_ERR "chz try to get gwnb-lid\n");
+		dev = class_find_device(&input_class, NULL, NULL, match_dev_by_name);
+		if (dev)
+		{
+			data->input = to_input_dev(dev);
+			printk(KERN_ERR "chz 2 found input:%s\n", data->input->name);
+		}
+		else
+		{
+			data->input = NULL;
+			printk(KERN_ERR "chz 2 not found!\n");
+		}
 
 	spin_lock_init(&data->lock);
 
@@ -426,28 +510,44 @@ static int goldfish_battery_probe(struct platform_device *pdev)
 
 	// Charles set SCI gpio (GPIOA 07)
 	// This should be done by BIOS not driver.
-	temp = readl(gpio_iobase + 0x00);
-	temp &= (~BIT(7));
-	writel(temp, gpio_iobase + 0x00);
 
+	// GPIO_SWPORTA_DDR input
+	temp = readl(gpio_iobase + 0x04);
+	temp &= (~BIT(7));
+	writel(temp, gpio_iobase + 0x04);
+
+	// GPIO_INTMASK no mask
 	temp = readl(gpio_iobase + 0x1C);
 	temp &= (~BIT(7));
 	writel(temp, gpio_iobase + 0x1C);
 
+	// GPIO_INTIYPE_LEVEL 1 edge
 	temp = readl(gpio_iobase + 0x20);
 	temp |= BIT(7);
 	writel(temp, gpio_iobase + 0x20);
 
+	// GPIO_INT_POLARITY 0 FALLING
 	temp = readl(gpio_iobase + 0x24);
 	temp &= (~BIT(7));
 	writel(temp, gpio_iobase + 0x24);
 
+	//GPIO_PORTA_EOI write 1 to clear int
+	writel(BIT(7), gpio_iobase + 0x38);
+
+	//GPIO_INTEN 1 as int
 	temp = readl(gpio_iobase + 0x18);
 	temp |= BIT(7);
 	writel(temp, gpio_iobase + 0x18);
 
 	EcWriteCmd(0x86);
 
+	while ((EcStatus() & ACPI_EC_FLAG_SCI) )
+	{
+		int q_event;
+		EcWriteCmd(0x84);
+		EcReadData(&q_event);
+		printk("[%s] :%d, clear pending SCI, Q num:0x%X\n", __func__, __LINE__, q_event);
+	}
 	return 0;
 }
 
@@ -459,21 +559,6 @@ static int goldfish_battery_remove(struct platform_device *pdev)
 	power_supply_unregister(data->ac);
 	return 0;
 }
-int gw_nb_device_suspend(struct platform_device *pdev, pm_message_t mesg)
-{
-	printk(KERN_ERR "gw_nb_device_suspend\n");
-	return 0;
-}
-EXPORT_SYMBOL_GPL(gw_nb_device_suspend);
-
-int gw_nb_device_resume(struct platform_device *pdev)
-{
-	printk(KERN_ERR "gw_nb_device_resume\n");
-	EcWriteCmd(0x86);
-	return 0;
-}
-EXPORT_SYMBOL_GPL(gw_nb_device_resume);
-
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id goldfish_battery_acpi_match[] = {
 	{"PHYT000C", 0},
@@ -483,20 +568,59 @@ static const struct acpi_device_id goldfish_battery_acpi_match[] = {
 MODULE_DEVICE_TABLE(acpi, goldfish_battery_acpi_match);
 #endif
 
+static int gwnb_dev_suspend(struct device *dev)
+{
+	return 0;
+}
+
+static int gwnb_dev_resume(struct device *dev)
+{
+	struct platform_device *pdev;
+	struct gw_nb_battery_data *data;
+
+	printk(KERN_ERR "gw_nb_device_resume sync input status and enable SCI, int status:0x%X\n",readl(gpio_iobase + 0x28));
+
+	pdev = to_platform_device(dev);
+	data = platform_get_drvdata(pdev);
+
+	gwnb_lid_poll(data->input);
+	// check_sci_event(data);
+
+	while (EcStatus() & ACPI_EC_FLAG_SCI)
+	{
+		int q_event;
+		EcWriteCmd(0x84);
+		EcReadData(&q_event);
+		printk("[%s] :%d, clear pending SCI, Q num:0x%X\n", __func__, __LINE__, q_event);
+	}
+
+	printk(KERN_ERR "gw_nb_device_resume clear gpio int \n");
+	// clear sci.
+	writel(BIT(7), gpio_iobase + 0x38);
+	
+	printk(KERN_ERR "gw_nb_device_resume gpio int status:0x%X\n",readl(gpio_iobase + 0x28));
+
+	// EcWriteCmd(0x86);
+
+	return 0;
+}
+static SIMPLE_DEV_PM_OPS(gwnb_dev_pm, gwnb_dev_suspend, gwnb_dev_resume);
+
 static struct platform_driver
 	goldfish_battery_device = {
 		.probe = goldfish_battery_probe,
 		.remove = goldfish_battery_remove,
 		.driver = {
-			.name = "gw-nb-battery",
+			.name = "gwnb-battery",
 			.acpi_match_table = ACPI_PTR(
 				goldfish_battery_acpi_match),
+		.pm	= &gwnb_dev_pm,
 		},
-		.suspend = gw_nb_device_suspend,
-		.resume = gw_nb_device_resume,
 };
 module_platform_driver(goldfish_battery_device);
 
 MODULE_AUTHOR("zhangshuzhen@greatwall.com.cn");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("gwnb-power");
 MODULE_DESCRIPTION("Power supply driver for Great Wall ft notebooks");
+MODULE_SOFTDEP("pre: gwnb-lid");
