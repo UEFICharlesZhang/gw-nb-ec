@@ -2,11 +2,7 @@
 /*
  * Power supply driver for Great Wall ft notebooks
  *
- * Copyright (C) 2008 Google, Inc.
- * Copyright (C) 2012 Intel, Inc.
- * Copyright (C) 2013 Intel, Inc.
- * Copyright (c) 2019 Great Wall
- * Author: Mike Lockwood <lockwood@android.com>
+ * Author: Charles Zhang <zhangshuzhen@greatwall.com.cn>
  */
 
 #include <linux/module.h>
@@ -20,7 +16,6 @@
 #include <linux/delay.h>
 
 #include <linux/input.h>
-
 
 struct gw_nb_battery_data
 {
@@ -194,7 +189,7 @@ static int gw_ec_read(int offset)
 // 	return 0;
 // }
 
-static int goldfish_ac_get_property(struct power_supply *psy,
+static int gwnb_ac_get_property(struct power_supply *psy,
 									enum power_supply_property psp,
 									union power_supply_propval *val)
 {
@@ -215,7 +210,7 @@ static int goldfish_ac_get_property(struct power_supply *psy,
 	return ret;
 }
 
-static int goldfish_battery_get_property(struct power_supply *psy,
+static int gwnb_battery_get_property(struct power_supply *psy,
 										 enum power_supply_property psp,
 										 union power_supply_propval *val)
 {
@@ -321,7 +316,7 @@ static int goldfish_battery_get_property(struct power_supply *psy,
 	return ret;
 }
 
-static enum power_supply_property goldfish_battery_props[] = {
+static enum power_supply_property gwnb_battery_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_PRESENT,
@@ -340,7 +335,7 @@ static enum power_supply_property goldfish_battery_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
 };
 
-static enum power_supply_property goldfish_ac_props[] = {
+static enum power_supply_property gwnb_ac_props[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 };
 static void gwnb_lid_poll(struct input_dev *input)
@@ -394,7 +389,7 @@ static void check_sci_event(struct gw_nb_battery_data *data)
 			break;
 	}
 }
-static irqreturn_t goldfish_battery_interrupt(int irq, void *dev_id)
+static irqreturn_t gwnb_battery_interrupt(int irq, void *dev_id)
 {
 	unsigned long irq_flags;
 	struct gw_nb_battery_data *data = dev_id;
@@ -414,17 +409,17 @@ static irqreturn_t goldfish_battery_interrupt(int irq, void *dev_id)
 }
 
 static const struct power_supply_desc battery_desc = {
-	.properties = goldfish_battery_props,
-	.num_properties = ARRAY_SIZE(goldfish_battery_props),
-	.get_property = goldfish_battery_get_property,
+	.properties = gwnb_battery_props,
+	.num_properties = ARRAY_SIZE(gwnb_battery_props),
+	.get_property = gwnb_battery_get_property,
 	.name = "gwnb-battery",
 	.type = POWER_SUPPLY_TYPE_BATTERY,
 };
 
 static const struct power_supply_desc ac_desc = {
-	.properties = goldfish_ac_props,
-	.num_properties = ARRAY_SIZE(goldfish_ac_props),
-	.get_property = goldfish_ac_get_property,
+	.properties = gwnb_ac_props,
+	.num_properties = ARRAY_SIZE(gwnb_ac_props),
+	.get_property = gwnb_ac_get_property,
 	.name = "gwnb-ac",
 	.type = POWER_SUPPLY_TYPE_MAINS,
 };
@@ -446,7 +441,7 @@ static int match_dev_by_name(struct device *dev, const void *data)
 	return 0;
 }
 
-static int goldfish_battery_probe(struct platform_device *pdev)
+static int gwnb_battery_probe(struct platform_device *pdev)
 {
 	int ret;
 	struct device *dev;
@@ -485,7 +480,7 @@ static int goldfish_battery_probe(struct platform_device *pdev)
 								  ACPI_ACTIVE_HIGH);
 	printk(KERN_ERR "GW NB acpi_register_gsi:%d\n", data->irq);
 
-	ret = request_irq(data->irq, goldfish_battery_interrupt, 0, "gw-nb-power", data);
+	ret = request_irq(data->irq, gwnb_battery_interrupt, 0, "gw-nb-power", data);
 	if (ret)
 		printk(KERN_ERR "GW NB Requset irq fail status:%d\n", ret);
 
@@ -551,7 +546,7 @@ static int goldfish_battery_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int goldfish_battery_remove(struct platform_device *pdev)
+static int gwnb_battery_remove(struct platform_device *pdev)
 {
 	struct gw_nb_battery_data *data = platform_get_drvdata(pdev);
 
@@ -560,12 +555,12 @@ static int goldfish_battery_remove(struct platform_device *pdev)
 	return 0;
 }
 #ifdef CONFIG_ACPI
-static const struct acpi_device_id goldfish_battery_acpi_match[] = {
+static const struct acpi_device_id gwnb_battery_acpi_match[] = {
 	{"PHYT000C", 0},
 	{"FTEC0002", 0},
 	{},
 };
-MODULE_DEVICE_TABLE(acpi, goldfish_battery_acpi_match);
+MODULE_DEVICE_TABLE(acpi, gwnb_battery_acpi_match);
 #endif
 
 static int gwnb_dev_suspend(struct device *dev)
@@ -607,17 +602,17 @@ static int gwnb_dev_resume(struct device *dev)
 static SIMPLE_DEV_PM_OPS(gwnb_dev_pm, gwnb_dev_suspend, gwnb_dev_resume);
 
 static struct platform_driver
-	goldfish_battery_device = {
-		.probe = goldfish_battery_probe,
-		.remove = goldfish_battery_remove,
+	gwnb_battery_device = {
+		.probe = gwnb_battery_probe,
+		.remove = gwnb_battery_remove,
 		.driver = {
 			.name = "gwnb-battery",
 			.acpi_match_table = ACPI_PTR(
-				goldfish_battery_acpi_match),
+				gwnb_battery_acpi_match),
 		.pm	= &gwnb_dev_pm,
 		},
 };
-module_platform_driver(goldfish_battery_device);
+module_platform_driver(gwnb_battery_device);
 
 MODULE_AUTHOR("zhangshuzhen@greatwall.com.cn");
 MODULE_LICENSE("GPL");
