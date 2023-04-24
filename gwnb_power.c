@@ -177,13 +177,13 @@ static int gw_ec_read(int offset)
 {
 	int tmp;
 	EcReadMem(offset, &tmp);
-	// printk(KERN_ERR "gw_ec_read offset:0x%X value:0x%x\n",offset,tmp);
+	// printk(KERN_INFO "gw_ec_read offset:0x%X value:0x%x\n",offset,tmp);
 	return tmp;
 }
 
 // static int gw_ec_write(int offset,int value)
 // {
-// 	printk(KERN_ERR "gw_ec_write\n");
+// 	printk(KERN_INFO "gw_ec_write\n");
 
 // 	EcWriteMem(offset, value);
 // 	return 0;
@@ -429,11 +429,11 @@ static int match_dev_by_name(struct device *dev, const void *data)
 
 	if (!strncasecmp(dev_name(dev), "input", 5))
 	{
-		// printk(KERN_ERR "chz dev name:%s\n", dev_name(dev));
+		// printk(KERN_INFO "chz dev name:%s\n", dev_name(dev));
 		input = to_input_dev(dev);
 		if (input->name)
 		{
-			// printk(KERN_ERR "chz match_dev_by_name:%s\n", input->name);
+			// printk(KERN_INFO "chz match_dev_by_name:%s\n", input->name);
 			if (!strcmp(input->name, "gwnb-lid"))
 				return 1;
 		}
@@ -441,67 +441,11 @@ static int match_dev_by_name(struct device *dev, const void *data)
 	return 0;
 }
 
-static int gwnb_battery_probe(struct platform_device *pdev)
+static int enable_acpi_mode(void)
 {
-	int ret;
-	struct device *dev;
-
-	// struct resource *r;
-	struct gw_nb_battery_data *data;
-	struct power_supply_config psy_cfg = {};
 	u32 temp;
 
-	printk(KERN_ERR "GW NB Battery probe\n");
-
-	data = devm_kzalloc(&pdev->dev, sizeof(struct gw_nb_battery_data), GFP_KERNEL);
-	if (data == NULL)
-		return -ENOMEM;
-
-		printk(KERN_ERR "chz try to get gwnb-lid\n");
-		dev = class_find_device(&input_class, NULL, NULL, match_dev_by_name);
-		if (dev)
-		{
-			data->input = to_input_dev(dev);
-			printk(KERN_ERR "chz 2 found input:%s\n", data->input->name);
-		}
-		else
-		{
-			data->input = NULL;
-			printk(KERN_ERR "chz 2 not found!\n");
-		}
-
-	spin_lock_init(&data->lock);
-
-	lpc_base = ioremap(LPC_BASE_ADDR, 0x100);
-
-	printk(KERN_ERR "GW NB ioremap lpc_base addr:0x%p\n", lpc_base);
-
-	data->irq = acpi_register_gsi(NULL, GPIO_0_INT, ACPI_LEVEL_SENSITIVE,
-								  ACPI_ACTIVE_HIGH);
-	printk(KERN_ERR "GW NB acpi_register_gsi:%d\n", data->irq);
-
-	ret = request_irq(data->irq, gwnb_battery_interrupt, 0, "gw-nb-power", data);
-	if (ret)
-		printk(KERN_ERR "GW NB Requset irq fail status:%d\n", ret);
-
-	psy_cfg.drv_data = data;
-
-	data->ac = power_supply_register(&pdev->dev, &ac_desc, &psy_cfg);
-	if (IS_ERR(data->ac))
-		return PTR_ERR(data->ac);
-
-	data->battery =
-		power_supply_register(&pdev->dev, &battery_desc, &psy_cfg);
-	if (IS_ERR(data->battery))
-	{
-		power_supply_unregister(data->ac);
-		return PTR_ERR(data->battery);
-	}
-
-	platform_set_drvdata(pdev, data);
-
-	lpc_base = ioremap(LPC_BASE_ADDR, 0x100);
-	gpio_iobase = ioremap(0x28004000, 0x100);
+	printk(KERN_INFO "enable_acpi_mode\n");
 
 	// Charles set SCI gpio (GPIOA 07)
 	// This should be done by BIOS not driver.
@@ -535,6 +479,71 @@ static int gwnb_battery_probe(struct platform_device *pdev)
 	writel(temp, gpio_iobase + 0x18);
 
 	EcWriteCmd(0x86);
+
+	return 0;
+}
+static int gwnb_battery_probe(struct platform_device *pdev)
+{
+	int ret;
+	struct device *dev;
+
+	// struct resource *r;
+	struct gw_nb_battery_data *data;
+	struct power_supply_config psy_cfg = {};
+
+	printk(KERN_INFO "GW NB Battery probe\n");
+
+	data = devm_kzalloc(&pdev->dev, sizeof(struct gw_nb_battery_data), GFP_KERNEL);
+	if (data == NULL)
+		return -ENOMEM;
+
+		printk(KERN_INFO "chz try to get gwnb-lid\n");
+		dev = class_find_device(&input_class, NULL, NULL, match_dev_by_name);
+		if (dev)
+		{
+			data->input = to_input_dev(dev);
+			printk(KERN_INFO "chz 2 found input:%s\n", data->input->name);
+		}
+		else
+		{
+			data->input = NULL;
+			printk(KERN_INFO "chz 2 not found!\n");
+		}
+
+	spin_lock_init(&data->lock);
+
+	lpc_base = ioremap(LPC_BASE_ADDR, 0x100);
+
+	printk(KERN_INFO "GW NB ioremap lpc_base addr:0x%p\n", lpc_base);
+
+	data->irq = acpi_register_gsi(NULL, GPIO_0_INT, ACPI_LEVEL_SENSITIVE,
+								  ACPI_ACTIVE_HIGH);
+	printk(KERN_INFO "GW NB acpi_register_gsi:%d\n", data->irq);
+
+	ret = request_irq(data->irq, gwnb_battery_interrupt, 0, "gw-nb-power", data);
+	if (ret)
+		printk(KERN_INFO "GW NB Requset irq fail status:%d\n", ret);
+
+	psy_cfg.drv_data = data;
+
+	data->ac = power_supply_register(&pdev->dev, &ac_desc, &psy_cfg);
+	if (IS_ERR(data->ac))
+		return PTR_ERR(data->ac);
+
+	data->battery =
+		power_supply_register(&pdev->dev, &battery_desc, &psy_cfg);
+	if (IS_ERR(data->battery))
+	{
+		power_supply_unregister(data->ac);
+		return PTR_ERR(data->battery);
+	}
+
+	platform_set_drvdata(pdev, data);
+
+	lpc_base = ioremap(LPC_BASE_ADDR, 0x100);
+	gpio_iobase = ioremap(0x28004000, 0x100);
+	enable_acpi_mode();
+
 
 	while ((EcStatus() & ACPI_EC_FLAG_SCI) )
 	{
@@ -573,7 +582,7 @@ static int gwnb_dev_resume(struct device *dev)
 	struct platform_device *pdev;
 	struct gw_nb_battery_data *data;
 
-	printk(KERN_ERR "gw_nb_device_resume sync input status and enable SCI, int status:0x%X\n",readl(gpio_iobase + 0x28));
+	printk(KERN_INFO "gw_nb_device_resume sync input status and enable SCI, int status:0x%X\n",readl(gpio_iobase + 0x28));
 
 	pdev = to_platform_device(dev);
 	data = platform_get_drvdata(pdev);
@@ -589,13 +598,14 @@ static int gwnb_dev_resume(struct device *dev)
 		printk("[%s] :%d, clear pending SCI, Q num:0x%X\n", __func__, __LINE__, q_event);
 	}
 
-	printk(KERN_ERR "gw_nb_device_resume clear gpio int \n");
+	printk(KERN_INFO "gw_nb_device_resume clear gpio int \n");
 	// clear sci.
 	writel(BIT(7), gpio_iobase + 0x38);
 	
-	printk(KERN_ERR "gw_nb_device_resume gpio int status:0x%X\n",readl(gpio_iobase + 0x28));
+	printk(KERN_INFO "gw_nb_device_resume gpio int status:0x%X\n",readl(gpio_iobase + 0x28));
 
-	// EcWriteCmd(0x86);
+	//Enable ACPI mode
+	enable_acpi_mode();
 
 	return 0;
 }
